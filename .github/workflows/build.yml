@@ -34,6 +34,22 @@ jobs:
         with:
           toolset: '14.29'
 
+      - name: Configure Visual Studio for V8 8.x
+        if: startsWith(env.V8_BRANCH, '8.')
+        # language=PowerShell
+        run: |
+          Write-Host "Using VS installation: $env:VSINSTALLDIR"
+          Write-Host "Using VC toolset: $env:VCToolsVersion"
+
+          "GYP_MSVS_VERSION=2019" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+          "GYP_MSVS_OVERRIDE_PATH=$($env:VSINSTALLDIR.TrimEnd('\'))" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+          "vs2019_install=$($env:VSINSTALLDIR.TrimEnd('\'))" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Setup MSVC
         if: ${{ !startsWith(env.V8_BRANCH, '8.') }}
         uses: ilammy/msvc-dev-cmd@v1
@@ -67,20 +83,6 @@ jobs:
         # language=PowerShell
         run: |
           ./patcher.ps1
-
-      - name: Select Build Arguments
-        id: build-args
-        # language=PowerShell
-        run: |
-          $major = [int](($env:V8_BRANCH -split '\.')[0])
-
-          if ($major -lt 9) {
-            $argsFile = "scripts/args-legacy.gn"
-          } else {
-            $argsFile = "scripts/args.gn"
-          }
-
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "file=$argsFile"
 
       - name: Restore Build Cache
         id: build-cache
