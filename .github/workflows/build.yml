@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -58,19 +58,33 @@ jobs:
         run: |
           ./patcher.ps1
 
+      - name: Restore Build Cache
+        id: build-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: target/v8/out.gn/x64.release
+          key: v8-build-${{ runner.os }}-${{ env.V8_BRANCH }}-${{ hashFiles('scripts/args.gn', 'patcher.ps1', 'patches/**/*.psm1') }}
+
       - name: Build D8
         id: build
         # language=PowerShell
         run: |
           cd target\v8
           $release = "out.gn\x64.release"
-          mkdir $release
+          New-Item -ItemType Directory -Path $release -Force | Out-Null
           cp "..\..\scripts\args.gn" "$release\args.gn" -Force
           gn gen $release
           ninja -C $release d8
 
           $artifact = "d8-with-disassembler-$env:V8_BRANCH"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "artifact=$artifact"
+
+      - name: Save Build Cache
+        if: success() && steps.build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: target/v8/out.gn/x64.release
+          key: v8-build-${{ runner.os }}-${{ env.V8_BRANCH }}-${{ hashFiles('scripts/args.gn', 'patcher.ps1', 'patches/**/*.psm1') }}
 
       - name: Cleanup Artifact
         # language=PowerShell
