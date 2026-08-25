@@ -9,17 +9,28 @@ void Shell::LoadBytecode(const v8::FunctionCallbackInfo<v8::Value>& info) {
     }
 
     v8::String::Utf8Value filename(isolate, info[0]);
-    if (*filename == NULL) {
+
+    if (*filename == nullptr) {
         isolate->ThrowException(v8::Exception::Error(
-            v8::String::NewFromUtf8(isolate, "Error creating filename.").ToLocalChecked()));
+            v8::String::NewFromUtf8(isolate, "Error creating filename.")
+                .ToLocalChecked()));
         return;
     }
 
     int length = 0;
-    std::unique_ptr<char[]> raw_filedata(ReadChars(*filename, &length));
+
+#if V8_MAJOR_VERSION < 9
+    std::unique_ptr<char[]> raw_filedata(
+        Shell::ReadChars(*filename, &length));
+#else
+    std::unique_ptr<char[]> raw_filedata(
+        ReadChars(*filename, &length));
+#endif
+
     if (raw_filedata == nullptr) {
         isolate->ThrowException(v8::Exception::Error(
-            v8::String::NewFromUtf8(isolate, "Error reading file.").ToLocalChecked()));
+            v8::String::NewFromUtf8(isolate, "Error reading file.")
+                .ToLocalChecked()));
         return;
     }
 
@@ -31,18 +42,31 @@ void Shell::LoadBytecode(const v8::FunctionCallbackInfo<v8::Value>& info) {
     v8::internal::AlignedCachedData cached_data(filedata, length);
 #endif
 
-    auto source = isolateInternal->factory()
-        ->NewStringFromUtf8(base::CStrVector("source"))
-        .ToHandleChecked();
+#if V8_MAJOR_VERSION < 9
+    auto source =
+        isolateInternal->factory()->NewStringFromAsciiChecked("source");
+#else
+    auto source =
+        isolateInternal->factory()
+            ->NewStringFromUtf8(v8::base::CStrVector("source"))
+            .ToHandleChecked();
+#endif
 
     printf("===== START DESERIALIZE BYTECODE =====\n");
 
 #if V8_MAJOR_VERSION < 9
     v8::internal::CodeSerializer::Deserialize(
-        isolateInternal, &cached_data, source, v8::ScriptOriginOptions());
+        isolateInternal,
+        &cached_data,
+        source,
+        v8::ScriptOriginOptions());
 #else
     v8::internal::ScriptDetails script_details;
+
     v8::internal::CodeSerializer::Deserialize(
-        isolateInternal, &cached_data, source, script_details);
+        isolateInternal,
+        &cached_data,
+        source,
+        script_details);
 #endif
 }
