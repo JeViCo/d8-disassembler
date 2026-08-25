@@ -90,6 +90,12 @@ jobs:
             exit 0
           }
 
+          #
+          # setup_toolchain.py
+          #
+          # Python 2 map() was eager. Python 3 map() is lazy, which causes
+          # the cross-drive ValueError to escape the existing try/catch.
+          #
           $setupToolchainPath = "target\v8\build\toolchain\win\setup_toolchain.py"
 
           if (-not (Test-Path $setupToolchainPath)) {
@@ -98,11 +104,11 @@ jobs:
 
           $content = Get-Content -Path $setupToolchainPath -Raw
 
-          $old = "lib = map(os.path.relpath, lib)"
-          $new = "lib = list(map(os.path.relpath, lib))"
+          $setupOld = "lib = map(os.path.relpath, lib)"
+          $setupNew = "lib = list(map(os.path.relpath, lib))"
 
-          if ($content.Contains($old)) {
-            $content = $content.Replace($old, $new)
+          if ($content.Contains($setupOld)) {
+            $content = $content.Replace($setupOld, $setupNew)
 
             [System.IO.File]::WriteAllText(
               (Resolve-Path $setupToolchainPath).Path,
@@ -111,12 +117,18 @@ jobs:
             )
 
             Write-Host "Patched setup_toolchain.py map() compatibility."
-          } elseif ($content.Contains($new)) {
+          } elseif ($content.Contains($setupNew)) {
             Write-Host "setup_toolchain.py compatibility fix already present."
           } else {
             throw "Expected legacy map() expression was not found in $setupToolchainPath"
           }
 
+          #
+          # tool_wrapper.py
+          #
+          # Old Chromium expects subprocess output to be str, as it was on
+          # Python 2. Python 3 returns bytes.
+          #
           $toolWrapperPath = "target\v8\build\toolchain\win\tool_wrapper.py"
 
           if (-not (Test-Path $toolWrapperPath)) {
@@ -125,24 +137,45 @@ jobs:
 
           $content = Get-Content -Path $toolWrapperPath -Raw
 
-          $old = "for line in out.splitlines():"
-          $new = "for line in out.decode('utf-8', errors='replace').splitlines():"
+          #
+          # ASM wrapper.
+          #
+          $asmOld = "for line in out.splitlines():"
+          $asmNew = "for line in out.decode('utf-8', errors='replace').splitlines():"
 
-          if ($content.Contains($old)) {
-            $content = $content.Replace($old, $new)
-
-            [System.IO.File]::WriteAllText(
-              (Resolve-Path $toolWrapperPath).Path,
-              $content,
-              [System.Text.UTF8Encoding]::new($false)
-            )
-
-            Write-Host "Patched tool_wrapper.py subprocess bytes compatibility."
-          } elseif ($content.Contains($new)) {
-            Write-Host "tool_wrapper.py compatibility fix already present."
+          if ($content.Contains($asmOld)) {
+            $content = $content.Replace($asmOld, $asmNew)
+            Write-Host "Patched assembler output decoding."
+          } elseif ($content.Contains($asmNew)) {
+            Write-Host "Assembler output decoding already patched."
           } else {
-            throw "Expected legacy assembler wrapper expression was not found in $toolWrapperPath"
+            throw "Expected legacy assembler output loop was not found."
           }
+
+          #
+          # Link wrapper.
+          #
+          # Decode each subprocess stdout line before the existing string
+          # comparisons. Keeping this as a one-line replacement avoids
+          # YAML/PowerShell here-string indentation problems.
+          #
+          $linkOld = "for line in link.stdout:"
+          $linkNew = "for line in map(lambda value: value.decode('utf-8', errors='replace'), link.stdout):"
+
+          if ($content.Contains($linkOld)) {
+            $content = $content.Replace($linkOld, $linkNew)
+            Write-Host "Patched linker output decoding."
+          } elseif ($content.Contains($linkNew)) {
+            Write-Host "Linker output decoding already patched."
+          } else {
+            throw "Expected legacy linker output loop was not found."
+          }
+
+          [System.IO.File]::WriteAllText(
+            (Resolve-Path $toolWrapperPath).Path,
+            $content,
+            [System.Text.UTF8Encoding]::new($false)
+          )
 
       - name: Upload Source
         uses: actions/upload-artifact@v4
