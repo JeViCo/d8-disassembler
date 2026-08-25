@@ -7,6 +7,8 @@ function Patch {
         -Patterns @('#include .+') `
         -Insert @"
 #include <cstring>
+#include "include/v8-version.h"
+#include "src/snapshot/code-serializer.h"
 "@
 
     $Content = Edit-FunctionBody -Content $Content `

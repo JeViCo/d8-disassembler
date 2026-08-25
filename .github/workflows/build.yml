@@ -6,7 +6,7 @@ on:
       v8_branch:
         description: 'V8 Version / Branch'
         required: true
-        default: '13.8.258.18'
+        default: '8.7.220.29'
   push:
     branches:
       - main
@@ -14,8 +14,9 @@ on:
 jobs:
   build:
     runs-on: windows-2022
+
     env:
-      V8_BRANCH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.v8_branch || '13.8.258.18' }}
+      V8_BRANCH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.v8_branch || '8.7.220.29' }}
       DEPOT_TOOLS_WIN_TOOLCHAIN: 0
 
     steps:
@@ -25,9 +26,16 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.11'
+
+      - name: Setup MSVC for V8 8.x
+        if: startsWith(env.V8_BRANCH, '8.')
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          toolset: '14.29'
 
       - name: Setup MSVC
+        if: ${{ !startsWith(env.V8_BRANCH, '8.') }}
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Install depot_tools
@@ -39,10 +47,12 @@ jobs:
       - name: Fetch V8
         # language=PowerShell
         run: |
-          mkdir target
-          cd target
+          New-Item -ItemType Directory -Path target -Force | Out-Null
+          Set-Location target
+
           fetch v8
-          cd v8
+
+          Set-Location v8
           git checkout $env:V8_BRANCH
           gclient sync -v
 
@@ -58,21 +68,44 @@ jobs:
         run: |
           ./patcher.ps1
 
+      - name: Select Build Arguments
+        id: build-args
+        # language=PowerShell
+        run: |
+          $major = [int](($env:V8_BRANCH -split '\.')[0])
+
+          if ($major -lt 9) {
+            $argsFile = "scripts/args-legacy.gn"
+          } else {
+            $argsFile = "scripts/args.gn"
+          }
+
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "file=$argsFile"
+
       - name: Restore Build Cache
         id: build-cache
         uses: actions/cache/restore@v4
         with:
           path: target/v8/out.gn/x64.release
-          key: v8-build-${{ runner.os }}-${{ env.V8_BRANCH }}-${{ hashFiles('scripts/args.gn', 'patcher.ps1', 'patches/**/*.psm1') }}
+          key: v8-build-${{ runner.os }}-${{ env.V8_BRANCH }}-${{ hashFiles('scripts/args*.gn', 'patcher.ps1', 'patches/**/*.psm1', 'patches/**/*.cc') }}
 
       - name: Build D8
         id: build
         # language=PowerShell
         run: |
-          cd target\v8
+          Set-Location target\v8
+
           $release = "out.gn\x64.release"
           New-Item -ItemType Directory -Path $release -Force | Out-Null
-          cp "..\..\scripts\args.gn" "$release\args.gn" -Force
+
+          $major = [int](($env:V8_BRANCH -split '\.')[0])
+
+          if ($major -lt 9) {
+            Copy-Item "..\..\scripts\args-legacy.gn" "$release\args.gn" -Force
+          } else {
+            Copy-Item "..\..\scripts\args.gn" "$release\args.gn" -Force
+          }
+
           gn gen $release
           ninja -C $release d8
 
@@ -84,15 +117,22 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: target/v8/out.gn/x64.release
-          key: v8-build-${{ runner.os }}-${{ env.V8_BRANCH }}-${{ hashFiles('scripts/args.gn', 'patcher.ps1', 'patches/**/*.psm1') }}
+          key: v8-build-${{ runner.os }}-${{ env.V8_BRANCH }}-${{ hashFiles('scripts/args*.gn', 'patcher.ps1', 'patches/**/*.psm1', 'patches/**/*.cc') }}
 
       - name: Cleanup Artifact
         # language=PowerShell
         run: |
           Set-Location target\v8\out.gn\x64.release
+
           Get-ChildItem
-          Remove-Item -Path gen -Recurse -Force
-          Remove-Item -Path obj -Recurse -Force
+
+          if (Test-Path gen) {
+            Remove-Item -Path gen -Recurse -Force
+          }
+
+          if (Test-Path obj) {
+            Remove-Item -Path obj -Recurse -Force
+          }
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

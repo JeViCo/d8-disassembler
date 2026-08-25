@@ -2,6 +2,7 @@ Import-Module (Join-Path $PSScriptRoot "..\utils.psm1")
 
 function Patch {
     param([string]$Content)
+    $legacyV8 = $Content -match 'ScopeInfo::cast\(\*this\)\.ScopeInfoPrint\(os\)'
 
     $Content = Edit-FunctionBody -Content $Content `
         -FunctionName "void SharedFunctionInfo::SharedFunctionInfoPrint" `
@@ -9,7 +10,30 @@ function Patch {
         param($Body)
         $Body = Set-CommentLine -Content $Body -Pattern "\s*PrintSourceCode\(os\);"
         $Body += "`n"
-        $Body += @"
+
+        if ($legacyV8) {
+            $Body += @"
+  os << "\nStart ScopeInfoChain\n";
+  ScopeInfo current_scope_info = scope_info();
+  for (int scope_depth = 0; scope_depth < 64; ++scope_depth) {
+    os << "\nStart ScopeInfo depth " << scope_depth << "\n";
+    current_scope_info.ScopeInfoPrint(os);
+    os << "End ScopeInfo depth " << scope_depth << "\n";
+    if (!current_scope_info.HasOuterScopeInfo()) break;
+    current_scope_info = current_scope_info.OuterScopeInfo();
+  }
+  os << "\nEnd ScopeInfoChain\n";
+  os << "\nStart BytecodeArray\n";
+  if (HasBytecodeArray()) {
+    GetBytecodeArray().Disassemble(os);
+  } else {
+    os << "<none>\n";
+  }
+  os << "\nEnd BytecodeArray\n";
+  os << std::flush;
+"@
+        } else {
+            $Body += @"
   os << "\nStart ScopeInfoChain\n";
   Tagged<ScopeInfo> current_scope_info = this->scope_info();
   for (int scope_depth = 0; scope_depth < 64; ++scope_depth) {
@@ -29,7 +53,13 @@ function Patch {
   os << "\nEnd BytecodeArray\n";
   os << std::flush;
 "@
+        }
+
         return $Body
+    }
+
+    if ($legacyV8) {
+        return $Content
     }
 
     $Content = Edit-FunctionBody -Content $Content `
