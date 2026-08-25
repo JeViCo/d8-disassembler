@@ -23,10 +23,17 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Setup Python for V8 8.x
+        if: startsWith(env.V8_BRANCH, '8.')
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.9'
+
+      - name: Setup Python
+        if: ${{ !startsWith(env.V8_BRANCH, '8.') }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
 
       - name: Setup MSVC for V8 8.x
         if: startsWith(env.V8_BRANCH, '8.')
