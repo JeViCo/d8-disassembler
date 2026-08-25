@@ -7,10 +7,10 @@ function Patch {
         -Patterns @('#include .+') `
         -Insert @"
 #include <cstring>
+#include <fstream>
 #include "include/v8-version.h"
 #include "src/snapshot/code-serializer.h"
 "@
-
     $Content = Edit-FunctionBody -Content $Content `
         -FunctionName "Local<ObjectTemplate> Shell::CreateGlobalTemplate" `
         -Converter {

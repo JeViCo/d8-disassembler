@@ -17,29 +17,41 @@ void Shell::LoadBytecode(const v8::FunctionCallbackInfo<v8::Value>& info) {
         return;
     }
 
-    int length = 0;
+    std::ifstream file(*filename, std::ios::binary | std::ios::ate);
 
-#if V8_MAJOR_VERSION < 9
-    std::unique_ptr<char[]> raw_filedata(
-        Shell::ReadChars(*filename, &length));
-#else
-    std::unique_ptr<char[]> raw_filedata(
-        ReadChars(*filename, &length));
-#endif
+    if (!file) {
+        isolate->ThrowException(v8::Exception::Error(
+            v8::String::NewFromUtf8(isolate, "Error opening file.")
+                .ToLocalChecked()));
+        return;
+    }
 
-    if (raw_filedata == nullptr) {
+    const std::streamoff file_size = file.tellg();
+
+    if (file_size < 0 || file_size > INT_MAX) {
+        isolate->ThrowException(v8::Exception::Error(
+            v8::String::NewFromUtf8(isolate, "Invalid bytecode file size.")
+                .ToLocalChecked()));
+        return;
+    }
+
+    const int length = static_cast<int>(file_size);
+    std::unique_ptr<uint8_t[]> filedata(new uint8_t[length]);
+
+    file.seekg(0, std::ios::beg);
+
+    if (length > 0 &&
+        !file.read(reinterpret_cast<char*>(filedata.get()), length)) {
         isolate->ThrowException(v8::Exception::Error(
             v8::String::NewFromUtf8(isolate, "Error reading file.")
                 .ToLocalChecked()));
         return;
     }
 
-    auto filedata = reinterpret_cast<uint8_t*>(raw_filedata.get());
-
 #if V8_MAJOR_VERSION < 9
-    v8::internal::ScriptData cached_data(filedata, length);
+    v8::internal::ScriptData cached_data(filedata.get(), length);
 #else
-    v8::internal::AlignedCachedData cached_data(filedata, length);
+    v8::internal::AlignedCachedData cached_data(filedata.get(), length);
 #endif
 
 #if V8_MAJOR_VERSION < 9

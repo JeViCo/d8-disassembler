@@ -7,21 +7,16 @@ void Shell::DumpOpcodes(const v8::FunctionCallbackInfo<v8::Value>& info) {
 
     bool first = true;
 
-#define D8_STRINGIFY_IMPL(...) #__VA_ARGS__
-#define D8_STRINGIFY(...) D8_STRINGIFY_IMPL(__VA_ARGS__)
-
 #if V8_MAJOR_VERSION < 9
 
-#define D8_DUMP_OPCODE(Name, ImplicitRegisterUse, ...)             \
+#define D8_DUMP_OPCODE(Name, ...)                                  \
     do {                                                           \
         if (!first) std::cout << ',';                              \
         first = false;                                             \
         const Bytecode bytecode = Bytecode::k##Name;               \
         std::cout << "{\"name\":\"" << #Name << "\"";              \
         std::cout << ",\"value\":" << static_cast<int>(bytecode);  \
-        std::cout << ",\"operands\":\""                            \
-                  << D8_STRINGIFY(__VA_ARGS__)                      \
-                  << "\"}";                                        \
+        std::cout << ",\"operands\":\"" << #__VA_ARGS__ << "\"}";  \
     } while (false);
 
     BYTECODE_LIST(D8_DUMP_OPCODE)
@@ -37,9 +32,7 @@ void Shell::DumpOpcodes(const v8::FunctionCallbackInfo<v8::Value>& info) {
         const Bytecode bytecode = Bytecode::k##Name;               \
         std::cout << "{\"name\":\"" << #Name << "\"";              \
         std::cout << ",\"value\":" << static_cast<int>(bytecode);  \
-        std::cout << ",\"operands\":\""                            \
-                  << D8_STRINGIFY(__VA_ARGS__)                      \
-                  << "\"}";                                        \
+        std::cout << ",\"operands\":\"" << #__VA_ARGS__ << "\"}";  \
     } while (false);
 
     BYTECODE_LIST(D8_DUMP_OPCODE, D8_DUMP_OPCODE)
@@ -47,9 +40,6 @@ void Shell::DumpOpcodes(const v8::FunctionCallbackInfo<v8::Value>& info) {
 #undef D8_DUMP_OPCODE
 
 #endif
-
-#undef D8_STRINGIFY
-#undef D8_STRINGIFY_IMPL
 
     std::cout << "]}" << std::endl;
 }
