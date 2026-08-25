@@ -58,7 +58,8 @@ jobs:
         # language=PowerShell
         run: |
           git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git C:\depot_tools
-          echo "C:\depot_tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "C:\depot_tools" |
+            Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Fetch V8
         # language=PowerShell
@@ -72,6 +73,46 @@ jobs:
           git checkout $env:V8_BRANCH
           gclient sync -v
 
+      - name: Patch Legacy V8 Python Toolchain
+        # language=PowerShell
+        run: |
+          $major = [int](($env:V8_BRANCH -split '\.')[0])
+
+          if ($major -ge 9) {
+            Write-Host "V8 $env:V8_BRANCH does not require legacy Python toolchain fixes."
+            exit 0
+          }
+
+          $path = "target\v8\build\toolchain\win\setup_toolchain.py"
+
+          if (-not (Test-Path $path)) {
+            throw "Legacy toolchain script not found: $path"
+          }
+
+          $content = Get-Content -Path $path -Raw
+
+          $old = "lib = map(os.path.relpath, lib)"
+          $new = "lib = list(map(os.path.relpath, lib))"
+
+          if ($content.Contains($new)) {
+            Write-Host "Legacy Python map() compatibility fix is already present."
+            exit 0
+          }
+
+          if (-not $content.Contains($old)) {
+            throw "Expected legacy map() expression was not found in $path"
+          }
+
+          $content = $content.Replace($old, $new)
+
+          [System.IO.File]::WriteAllText(
+            (Resolve-Path $path).Path,
+            $content,
+            [System.Text.UTF8Encoding]::new($false)
+          )
+
+          Write-Host "Patched Python 2-era lazy map() incompatibility."
+
       - name: Upload Source
         uses: actions/upload-artifact@v4
         with:
@@ -84,12 +125,27 @@ jobs:
         run: |
           ./patcher.ps1
 
+      - name: Select Build Arguments
+        id: build-args
+        # language=PowerShell
+        run: |
+          $major = [int](($env:V8_BRANCH -split '\.')[0])
+
+          if ($major -lt 9) {
+            $argsFile = "scripts/args-legacy.gn"
+          } else {
+            $argsFile = "scripts/args.gn"
+          }
+
+          Write-Host "Using GN arguments: $argsFile"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "file=$argsFile"
+
       - name: Restore Build Cache
         id: build-cache
         uses: actions/cache/restore@v4
         with:
           path: target/v8/out.gn/x64.release
-          key: v8-build-${{ runner.os }}-${{ env.V8_BRANCH }}-${{ hashFiles('scripts/args*.gn', 'patcher.ps1', 'patches/**/*.psm1', 'patches/**/*.cc') }}
+          key: v8-build-${{ runner.os }}-${{ env.V8_BRANCH }}-${{ hashFiles('.github/workflows/build.yml', 'scripts/args*.gn', 'patcher.ps1', 'patches/**/*.psm1', 'patches/**/*.cc') }}
 
       - name: Build D8
         id: build
@@ -100,13 +156,10 @@ jobs:
           $release = "out.gn\x64.release"
           New-Item -ItemType Directory -Path $release -Force | Out-Null
 
-          $major = [int](($env:V8_BRANCH -split '\.')[0])
+          $argsFile = "${{ steps.build-args.outputs.file }}"
 
-          if ($major -lt 9) {
-            Copy-Item "..\..\scripts\args-legacy.gn" "$release\args.gn" -Force
-          } else {
-            Copy-Item "..\..\scripts\args.gn" "$release\args.gn" -Force
-          }
+          Write-Host "Copying $argsFile"
+          Copy-Item "..\..\$argsFile" "$release\args.gn" -Force
 
           gn gen $release
           ninja -C $release d8
@@ -119,7 +172,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: target/v8/out.gn/x64.release
-          key: v8-build-${{ runner.os }}-${{ env.V8_BRANCH }}-${{ hashFiles('scripts/args*.gn', 'patcher.ps1', 'patches/**/*.psm1', 'patches/**/*.cc') }}
+          key: v8-build-${{ runner.os }}-${{ env.V8_BRANCH }}-${{ hashFiles('.github/workflows/build.yml', 'scripts/args*.gn', 'patcher.ps1', 'patches/**/*.psm1', 'patches/**/*.cc') }}
 
       - name: Cleanup Artifact
         # language=PowerShell
